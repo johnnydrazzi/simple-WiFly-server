@@ -1,0 +1,130 @@
+<!------- SIMPLE TEST SERVER FOR WIFLY & ARDUINO -------------->
+<!------- Author: John Izzard --------------------------------->
+<!------- Date: 6th JUL 2014 ---------------------------------->
+
+<!-- PLEASE NOTE: This is only demo code, it is subject to change as it's only just started and it may still be buggy... -->
+
+
+<!DOCTYPE html>       
+<html>
+<head>
+</head>
+<body>
+
+<table>
+	<tr>
+		<td><button onclick="createAjax('$');">toggle me</button></td>
+		<td id="status">off</td>
+	</tr>
+</table>
+
+<script> 
+/* --------------------- GLOBAL VARIABLES ---------------------------- */
+var packetTimeout = 5000;      // The acceptable amount of time for a response to an HTTP request in ms
+var packetRetries = 3;         // The acceptable amount of retries, when the WiFly doesn't respond in XXXXms
+
+var ajaxBuffer = new Array();  // Create a array to store AJAX tasks to perform, FIFO style
+var updatingStat = false;      // A variable to block multiple status updates when one is currently waiting
+var triesCount = 0;           // This variable is used to count the amount of times a timeOut occurs (failed packets)
+var elapsed;                   // Elapsed stores the amount of time since a packet is sent
+
+/* ---------------------- AJAX FUNCTIONS ----------------------------- */
+function createAjax(url,container){  // Creates an Object and places in ajaxBuffer
+	newAjax = new Object();
+	newAjax.url = url;               // URL property
+	newAjax.container = container;   // Element ID property
+	newAjax.sent = false;            // Sent property is used to record whether the HTTP request has been sent
+	newAjax.timeSent;                // Property to store the time an HTTP request was sent
+	ajaxBuffer.push(newAjax);        // Place the Object at the end of the ajaxBuffer
+}
+
+function pollAjax(){                 // This function loops the ajaxBuffer and performs any tasks needed FIFO
+	if(ajaxBuffer.length != 0){                                                 // If the ajaxBuffer is not empty, do something
+		console.log("Buffer length is: " + ajaxBuffer.length + ".");
+		if(ajaxBuffer[0].sent == true){                                         // If the HTTP request has been sent, update the time elapsed
+			elapsed = grabTime() - ajaxBuffer[0].timeSent;
+			console.log("elapsed is: " + elapsed);
+		}
+		if(ajaxBuffer[0].sent == false){                                        // If there is a request to send, and it hasn't been sent yet, send it
+			ajaxBuffer[0].request = new XMLHttpRequest();                       // Create the XMLHttpRequest Object
+			ajaxBuffer[0].request.open("GET",ajaxBuffer[0].url,true);           // Open the request, use GET method, use the URL stored, asynchronous is true
+			ajaxBuffer[0].request.send();                                       // Send the GET HTTP request
+			ajaxBuffer[0].timeSent = grabTime();                                // Grab the time is was sent
+			console.log("time sent is: "+ ajaxBuffer[0].timeSent);
+			ajaxBuffer[0].sent = true;                                          // Sent is now true
+			console.log("Just sent an AJAX request!");
+		}
+		else if(ajaxBuffer[0].request.readyState == 4 && ajaxBuffer[0].request.status == 200){  // If a successful response has occurred
+			console.log("Just received AJAX response!");
+			console.log(ajaxBuffer[0].container);
+			if(ajaxBuffer[0].container != null){                                 // If we have passed in an Element ID, place the text response in the associated tag
+				document.getElementById(ajaxBuffer[0].container).innerHTML = ajaxBuffer[0].request.responseText;
+				changeColor(ajaxBuffer[0].container);                            // based on the response, update the background-colour
+			}
+			ajaxBuffer[0].request.abort();                                       // Abort HTTP request
+			ajaxBuffer[0].request = null;
+			ajaxBuffer.shift();                                                  // Delete the object/task from the front of the buffer
+			if(updatingStat){updatingStat=false;console.log("updatingStat = " + updatingStat);}
+			triesCount = 0;                                                      // Connection to the WiFly was successful so counter can be reset
+			setTimeout(50);                                                      // Delay 50ms
+		}
+		else if(elapsed > packetTimeout){                                        // If the request has taken too long to respond
+			if(triesCount > packetRetries){                                      // If request has tried too many times to get through to the WiFly
+				ajaxBuffer[0].request.abort();                                   // Abort HTTP request
+				ajaxBuffer[0].request = null;
+				ajaxBuffer.shift();                                              // Delete the object/task from the front of the buffer
+				if(updatingStat){updatingStat=false;console.log("updatingStat = " + updatingStat);} // If the task was an update status, reset the flag
+				triesCount = 0;                                                  // Reset the tries counter
+				alert("Connection has failed!");
+				setTimeout(50);
+			}
+			else{                                                                // If the packet timed out, try again
+				ajaxBuffer[0].request.abort();                                   
+				ajaxBuffer[0].request = null;
+				ajaxBuffer[0].request = new XMLHttpRequest();                    // Send again
+				ajaxBuffer[0].request.open("GET",ajaxBuffer[0].url,true);
+				ajaxBuffer[0].request.send();
+				ajaxBuffer[0].timeSent = grabTime(); console.log("time sent is: "+ ajaxBuffer[0].timeSent);  // Grab the time
+				ajaxBuffer[0].sent = true;                                       // Sent is now true
+				console.log("Just sent an AJAX request *AGAIN*!");
+				triesCount++;                                                    // Increment the triesCount
+				console.log("triesCount = " + triesCount);
+			}
+		}
+	}
+	else{updateStatus();}               // If no task is in the buffer, update the status
+setTimeout("pollAjax()",50);            // Recall this function every 50ms, keeps this function looping and performing the tasks as the come
+}
+
+/* --------------------------- FUNCTIONS ----------------------------- */
+
+function updateStatus(){             // Update the status
+	if(!updatingStat){               // If not currently updating the status, it will update. Prevents the buffer getting clogged up when the server is slow.
+		updatingStat = true;
+		console.log("updatingStat = " + updatingStat);
+		createAjax('?','status');
+	}
+}
+
+var grabTime = function(){           // Function to grab the time in ms from midnight 1st JAN 1970, and return it. Just used to record the time.
+var theTime = new Date();
+return theTime.getTime();
+}
+
+function changeColor(container){     // This function changes the background and text colour when a status is updated
+	if(document.getElementById(container).innerHTML === "on"){         // If the element contains the text on, make background yellow 
+		document.getElementById(container).style.backgroundColor = "yellow";
+		document.getElementById(container).style.color = "black";      // And text black
+	}
+	else if(document.getElementById(container).innerHTML === "off"){   // If the element contains the text off, make background black
+		document.getElementById(container).style.backgroundColor = "black";
+		document.getElementById(container).style.color = "white";      // And text white
+	}
+}
+
+// Start the pollAjax running in 4s, gives time for the page to load and WiFly to stop talking
+setTimeout("pollAjax()",4000);
+
+</script>
+</body>
+</html>
